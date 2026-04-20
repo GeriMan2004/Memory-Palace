@@ -22,15 +22,17 @@ function getImageState(
 }
 
 function SceneArtwork({
+  hideMeta = false,
   image,
   muted = false,
   stop,
   subtitle,
 }: {
+  hideMeta?: boolean;
   image?: ImageRecord;
   muted?: boolean;
   stop: PalaceStop;
-  subtitle: string;
+  subtitle?: string;
 }) {
   const imageSrc =
     image?.status === "ready" ? image.imageDataUrl ?? undefined : undefined;
@@ -61,39 +63,48 @@ function SceneArtwork({
           <div className="flex h-14 w-14 items-center justify-center rounded-full border border-white/12 bg-white/6">
             <Sparkles className="h-5 w-5 text-[#e3bf8e]" />
           </div>
-          <div className="space-y-1">
+          <div className={cn("space-y-1", hideMeta && "sr-only")}>
             <p className="text-[0.68rem] uppercase tracking-[0.32em] text-stone-500">
               {image?.status === "failed" ? "Image missed" : "Rendering scene"}
             </p>
             <p className="text-lg text-stone-100">{stop.sceneTitle}</p>
-            <p className="max-w-md px-6 text-sm text-stone-400">{subtitle}</p>
+            {subtitle ? (
+              <p className="max-w-md px-6 text-sm text-stone-400">{subtitle}</p>
+            ) : null}
           </div>
         </div>
       ) : null}
 
-      <div className="absolute inset-x-0 bottom-0 p-6 sm:p-8">
-        <div className="flex items-start justify-between gap-6">
-          <div className="space-y-2">
-            <div className="inline-flex items-center rounded-full border border-white/10 bg-black/28 px-3 py-1 text-[0.68rem] uppercase tracking-[0.28em] text-stone-300 backdrop-blur">
-              Stop {String(stop.step).padStart(2, "0")}
+      {!hideMeta ? (
+        <div className="absolute inset-x-0 bottom-0 p-6 sm:p-8">
+          <div className="flex items-start justify-between gap-6">
+            <div className="space-y-2">
+              <div className="inline-flex items-center rounded-full border border-white/10 bg-black/28 px-3 py-1 text-[0.68rem] uppercase tracking-[0.28em] text-stone-300 backdrop-blur">
+                Stop {String(stop.step).padStart(2, "0")}
+              </div>
+              <div>
+                <p className="text-[0.72rem] uppercase tracking-[0.28em] text-[#d2ad79]">
+                  {stop.locationLabel}
+                </p>
+                <h2 className="mt-2 font-display text-3xl leading-none text-stone-50 sm:text-[2.65rem]">
+                  {stop.sceneTitle}
+                </h2>
+                <p className="mt-3 inline-flex items-center rounded-full border border-[#dfb884]/40 bg-[#dfb884]/16 px-3 py-1 text-[0.68rem] uppercase tracking-[0.22em] text-[#f3d8b6]">
+                  Key Word: {stop.item}
+                </p>
+              </div>
+              {subtitle ? (
+                <p className="max-w-xl text-sm leading-6 text-stone-300 sm:text-base">
+                  {subtitle}
+                </p>
+              ) : null}
             </div>
-            <div>
-              <p className="text-[0.72rem] uppercase tracking-[0.28em] text-[#d2ad79]">
-                {stop.locationLabel}
-              </p>
-              <h2 className="mt-2 font-display text-3xl leading-none text-stone-50 sm:text-[2.65rem]">
-                {stop.sceneTitle}
-              </h2>
+            <div className="hidden rounded-full border border-white/10 bg-black/22 px-3 py-1.5 text-[0.68rem] uppercase tracking-[0.28em] text-stone-400 md:block">
+              {image?.status === "ready" ? "Ready" : image?.status ?? "Pending"}
             </div>
-            <p className="max-w-xl text-sm leading-6 text-stone-300 sm:text-base">
-              {subtitle}
-            </p>
-          </div>
-          <div className="hidden rounded-full border border-white/10 bg-black/22 px-3 py-1.5 text-[0.68rem] uppercase tracking-[0.28em] text-stone-400 md:block">
-            {image?.status === "ready" ? "Ready" : image?.status ?? "Pending"}
           </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -192,6 +203,9 @@ function JourneyRail({
             </div>
             <p className="mt-3 text-sm text-stone-100">{stop.locationLabel}</p>
             <p className="mt-1 text-xs text-stone-500">{stop.sceneTitle}</p>
+            <p className="mt-2 text-[0.64rem] uppercase tracking-[0.22em] text-[#dfb884]">
+              Key Word: {stop.item}
+            </p>
           </button>
         );
       })}
@@ -235,29 +249,20 @@ function JourneyStage({
 
 function RecallStage({
   images,
-  route,
   stop,
 }: {
   images: ImageRecord[];
-  route: PalaceRoute;
   stop: PalaceStop;
 }) {
   const selectedImage = getImageState(images, stop.locationId);
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      <div className="min-h-0 flex-1">
-        <SceneArtwork
-          image={selectedImage}
-          muted
-          stop={stop}
-          subtitle={stop.transitionHint}
-        />
-      </div>
-      <JourneyRail
-        images={images}
-        route={route}
-        selectedStopId={stop.locationId}
+    <div className="h-full">
+      <SceneArtwork
+        hideMeta
+        image={selectedImage}
+        muted
+        stop={stop}
       />
     </div>
   );
@@ -308,6 +313,9 @@ function ResultsStage({
                   <p className="truncate text-sm text-stone-100">{stop.locationLabel}</p>
                   <p className="mt-1 truncate text-xs text-stone-500">
                     {isCorrect ? "Locked" : `Yours: ${userAnswer || "—"}`}
+                  </p>
+                  <p className="mt-1 text-[0.64rem] uppercase tracking-[0.2em] text-[#dfb884]">
+                    Key Word: {stop.item}
                   </p>
                 </div>
                 <div
@@ -400,7 +408,7 @@ export function PalaceStage({
         ) : null}
 
         {phase === "recall" && route && currentStop ? (
-          <RecallStage images={images} route={route} stop={currentStop} />
+          <RecallStage images={images} stop={currentStop} />
         ) : null}
 
         {phase === "results" && route ? (

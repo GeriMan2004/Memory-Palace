@@ -1,28 +1,19 @@
 "use client";
 
-import * as Dialog from "@radix-ui/react-dialog";
 import {
   ArrowRight,
   Brain,
-  Eye,
   RefreshCw,
   RotateCcw,
   Sparkles,
 } from "lucide-react";
-import {
-  useDeferredValue,
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
 
 import { PalaceStage } from "@/components/palace-stage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { normalizeItem, type PalaceRoute } from "@/lib/palace-schema";
+import { normalizeItem, type PalaceRoute, type PalaceStop } from "@/lib/palace-schema";
 import { cn } from "@/lib/utils";
 
 type AppPhase = "input" | "route" | "recall" | "results";
@@ -36,12 +27,18 @@ type ImageRecord = {
   updatedAt: string;
 };
 
-type ImageBatchResponse = {
-  createdAt: string;
-  images: ImageRecord[];
-  isProcessing: boolean;
-  requestId: string;
-  updatedAt: string;
+type StepRouteResponse = {
+  routeMood: string;
+  routeTitle: string;
+  stop: PalaceStop;
+};
+
+type SingleImageResponse = {
+  error: string | null;
+  imageDataUrl?: string;
+  locationId: string;
+  status: "ready" | "failed";
+  step: number;
 };
 
 const ITEM_OPTIONS = [3, 4, 5, 6, 7, 8];
@@ -64,21 +61,25 @@ export function MemoryPalaceApp() {
   const deferredItems = useDeferredValue(items);
   const [route, setRoute] = useState<PalaceRoute | null>(null);
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
-  const [imageBatch, setImageBatch] = useState<ImageBatchResponse | null>(null);
+  const [imageRecords, setImageRecords] = useState<ImageRecord[]>([]);
   const [answers, setAnswers] = useState<string[]>([]);
   const [currentAnswer, setCurrentAnswer] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [referenceOpen, setReferenceOpen] = useState(false);
-  const [isPending, startTransition] = useTransition();
+  const [isBuildingRoute, setIsBuildingRoute] = useState(false);
+  const [buildStatus, setBuildStatus] = useState<string | null>(null);
+  const [pathPreview, setPathPreview] = useState<string | null>(null);
   const answerInputRef = useRef<HTMLInputElement>(null);
 
   const currentStop = route ? route.stops[answers.length] : undefined;
   const correctCount = route ? getScore(route, answers) : 0;
-  const imageRecords = imageBatch?.images ?? [];
   const readyCount = imageRecords.filter((image) => image.status === "ready").length;
   const failedCount = imageRecords.filter((image) => image.status === "failed").length;
   const pendingCount = imageRecords.filter((image) => image.status === "pending").length;
   const recallProgress = route ? (answers.length / route.stops.length) * 100 : 0;
+  const selectedStop =
+    route && selectedStopId
+      ? route.stops.find((stop) => stop.locationId === selectedStopId) ?? null
+      : null;
 
   useEffect(() => {
     if (phase === "recall") {
@@ -86,69 +87,111 @@ export function MemoryPalaceApp() {
     }
   }, [phase, answers.length]);
 
-  const pollBatch = useEffectEvent(async (requestId: string) => {
-    const response = await fetch(
-      `/api/palace-images?requestId=${encodeURIComponent(requestId)}`,
-      {
-        cache: "no-store",
-      },
-    );
-    const payload = (await response.json()) as ImageBatchResponse | { error?: string };
+  function upsertImageRecord(nextRecord: ImageRecord) {
+    setImageRecords((current) => {
+      const merged = [
+        ...current.filter(
+          (record) => record.locationId !== nextRecord.locationId,
+        ),
+        nextRecord,
+      ];
 
-    if (!response.ok) {
-      if ("error" in payload && payload.error) {
-        setErrorMessage(payload.error);
-      }
-      return;
-    }
+      return merged.sort((a, b) => a.step - b.step);
+    });
+  }
 
-    setImageBatch(payload as ImageBatchResponse);
-  });
+  async function generateImageForStop(stop: PalaceStop, routeMood: string) {
+    upsertImageRecord({
+      error: null,
+      imageDataUrl: null,
+      locationId: stop.locationId,
+      status: "pending",
+      step: stop.step,
+      updatedAt: new Date().toISOString(),
+    });
 
-  useEffect(() => {
-    if (!imageBatch?.requestId) {
-      return;
-    }
-
-    if (!imageBatch.images.some((image) => image.status === "pending")) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      void pollBatch(imageBatch.requestId);
-    }, 1400);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [imageBatch?.images, imageBatch?.requestId]);
-
-  async function startImageBatch(nextRoute: PalaceRoute, retryFailed = false) {
-    const response = await fetch("/api/palace-images", {
+    const response = await fetch("/api/palace-image", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        requestId: retryFailed ? imageBatch?.requestId : undefined,
-        retryFailed,
-        routeMood: nextRoute.routeMood,
-        scenes: nextRoute.stops,
+        routeMood,
+        scene: stop,
       }),
     });
 
-    const payload = (await response.json()) as ImageBatchResponse | { error?: string };
+    const payload = (await response.json()) as
+      | SingleImageResponse
+      | { error?: string };
+
+    if (!response.ok) {
+      upsertImageRecord({
+        error:
+          "error" in payload && payload.error
+            ? payload.error
+            : "Scene image generation failed.",
+        imageDataUrl: null,
+        locationId: stop.locationId,
+        status: "failed",
+        step: stop.step,
+        updatedAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const result = payload as SingleImageResponse;
+
+    upsertImageRecord({
+      error: result.error,
+      imageDataUrl: result.imageDataUrl ?? null,
+      locationId: result.locationId,
+      status: result.status,
+      step: result.step,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  async function requestNextStop({
+    existingStops,
+    routeMood,
+    routeTitle,
+    trimmedItems,
+  }: {
+    existingStops: PalaceStop[];
+    routeMood?: string;
+    routeTitle?: string;
+    trimmedItems: string[];
+  }) {
+    const response = await fetch("/api/palace-route", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        existingStops,
+        items: trimmedItems,
+        routeMood,
+        routeTitle,
+      }),
+    });
+
+    const payload = (await response.json()) as
+      | StepRouteResponse
+      | { error?: string };
 
     if (!response.ok) {
       throw new Error(
         "error" in payload && payload.error
           ? payload.error
-          : "Unable to generate scene images.",
+          : "Unable to generate next route step.",
       );
     }
 
-    setImageBatch(payload as ImageBatchResponse);
+    return payload as StepRouteResponse;
   }
 
-  async function generateRoute() {
+  async function generateRouteProgressively() {
     const trimmedItems = items.map((item) => item.trim());
 
     if (trimmedItems.some((item) => !item)) {
@@ -157,43 +200,97 @@ export function MemoryPalaceApp() {
     }
 
     setErrorMessage(null);
-    setImageBatch(null);
     setAnswers([]);
     setCurrentAnswer("");
-
-    const response = await fetch("/api/palace-route", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        items: trimmedItems,
-      }),
-    });
-
-    const payload = (await response.json()) as PalaceRoute | { error?: string };
-
-    if (!response.ok) {
-      throw new Error(
-        "error" in payload && payload.error
-          ? payload.error
-          : "Unable to build a memory route.",
-      );
-    }
-
-    const nextRoute = payload as PalaceRoute;
-
-    setRoute(nextRoute);
-    setSelectedStopId(nextRoute.stops[0]?.locationId ?? null);
+    setImageRecords([]);
+    setPathPreview(null);
+    setBuildStatus("Opening the first location...");
+    setIsBuildingRoute(true);
     setPhase("route");
 
+    let draftRouteTitle = "Memory route unfolding";
+    let draftRouteMood = "connected surreal walk";
+    let draftStops: PalaceStop[] = [];
+
+    setRoute({
+      routeMood: draftRouteMood,
+      routeTitle: draftRouteTitle,
+      stops: [],
+    });
+    setSelectedStopId(null);
+
     try {
-      await startImageBatch(nextRoute);
+      for (let index = 0; index < trimmedItems.length; index += 1) {
+        setBuildStatus(`Writing stop ${index + 1} of ${trimmedItems.length}...`);
+
+        const step = await requestNextStop({
+          existingStops: draftStops,
+          routeMood: draftStops.length > 0 ? draftRouteMood : undefined,
+          routeTitle: draftStops.length > 0 ? draftRouteTitle : undefined,
+          trimmedItems,
+        });
+
+        draftRouteTitle = step.routeTitle;
+        draftRouteMood = step.routeMood;
+        draftStops = [...draftStops, step.stop];
+
+        setRoute({
+          routeMood: draftRouteMood,
+          routeTitle: draftRouteTitle,
+          stops: [...draftStops],
+        });
+        setSelectedStopId(step.stop.locationId);
+
+        setBuildStatus(`Rendering scene ${index + 1} of ${trimmedItems.length}...`);
+        await generateImageForStop(step.stop, draftRouteMood);
+
+        if (index < trimmedItems.length - 1) {
+          setPathPreview(step.stop.transitionHint);
+          setBuildStatus(`Path to next stop: ${step.stop.transitionHint}`);
+        }
+      }
+
+      setBuildStatus("Journey ready. Study the path and start recall.");
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Route ready, but scene images failed.",
+        error instanceof Error
+          ? error.message
+          : "Unable to build the progressive memory route.",
       );
+      setBuildStatus(null);
+    } finally {
+      setIsBuildingRoute(false);
     }
+  }
+
+  async function retryFailedImages() {
+    if (!route) {
+      return;
+    }
+
+    const failed = imageRecords
+      .filter((record) => record.status === "failed")
+      .sort((a, b) => a.step - b.step);
+
+    if (!failed.length) {
+      return;
+    }
+
+    setBuildStatus("Retrying failed scenes...");
+
+    for (const failedRecord of failed) {
+      const stop = route.stops.find(
+        (candidate) => candidate.locationId === failedRecord.locationId,
+      );
+
+      if (!stop) {
+        continue;
+      }
+
+      await generateImageForStop(stop, route.routeMood);
+    }
+
+    setBuildStatus("Retry complete.");
   }
 
   function handleCountChange(nextCount: number) {
@@ -221,7 +318,6 @@ export function MemoryPalaceApp() {
     setAnswers([]);
     setCurrentAnswer("");
     setPhase("recall");
-    setReferenceOpen(false);
   }
 
   function handleRestart() {
@@ -230,11 +326,13 @@ export function MemoryPalaceApp() {
     setItems(createItemFields(DEFAULT_COUNT));
     setRoute(null);
     setSelectedStopId(null);
-    setImageBatch(null);
+    setImageRecords([]);
     setAnswers([]);
     setCurrentAnswer("");
     setErrorMessage(null);
-    setReferenceOpen(false);
+    setBuildStatus(null);
+    setPathPreview(null);
+    setIsBuildingRoute(false);
   }
 
   const phaseLabel = {
@@ -354,21 +452,13 @@ export function MemoryPalaceApp() {
 
                   <Button
                     className="w-full justify-between rounded-2xl px-5"
-                    disabled={isPending}
-                    onClick={() =>
-                      startTransition(async () => {
-                        await generateRoute().catch((error) => {
-                          setErrorMessage(
-                            error instanceof Error
-                              ? error.message
-                              : "Unable to build a memory route.",
-                          );
-                        });
-                      })
-                    }
+                    disabled={isBuildingRoute}
+                    onClick={() => {
+                      void generateRouteProgressively();
+                    }}
                     type="button"
                   >
-                    <span>{isPending ? "Building route" : "Build palace"}</span>
+                    <span>{isBuildingRoute ? "Building route" : "Build palace"}</span>
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                 </div>
@@ -390,30 +480,37 @@ export function MemoryPalaceApp() {
                     </div>
                   </div>
 
-                  {selectedStopId ? (
+                  {selectedStop ? (
                     <div className="rounded-[26px] border border-white/10 bg-white/4 p-4">
-                      {route.stops
-                        .filter((stop) => stop.locationId === selectedStopId)
-                        .map((stop) => (
-                          <div className="space-y-4" key={stop.locationId}>
-                            <div>
-                              <p className="text-[0.68rem] uppercase tracking-[0.28em] text-[#d6ac76]">
-                                {stop.locationLabel}
-                              </p>
-                              <p className="mt-2 text-lg text-stone-100">
-                                {stop.sceneTitle}
-                              </p>
-                            </div>
-                            <p className="text-sm leading-6 text-stone-400">
-                              {stop.mnemonicCue}
-                            </p>
-                            <p className="text-xs uppercase tracking-[0.22em] text-stone-500">
-                              {stop.transitionHint}
-                            </p>
-                          </div>
-                        ))}
+                      <div className="space-y-4">
+                        <div>
+                          <p className="text-[0.68rem] uppercase tracking-[0.28em] text-[#d6ac76]">
+                            {selectedStop.locationLabel}
+                          </p>
+                          <p className="mt-2 text-lg text-stone-100">
+                            {selectedStop.sceneTitle}
+                          </p>
+                          <p className="mt-3 inline-flex items-center rounded-full border border-[#dfb884]/38 bg-[#dfb884]/14 px-3 py-1 text-[0.64rem] uppercase tracking-[0.22em] text-[#f0d3ad]">
+                            Key Word: {selectedStop.item}
+                          </p>
+                        </div>
+                        <p className="text-sm leading-6 text-stone-400">
+                          {selectedStop.mnemonicCue}
+                        </p>
+                      </div>
                     </div>
                   ) : null}
+
+                  <div className="rounded-[22px] border border-[#d7ad77]/20 bg-[#d7ad77]/6 p-4">
+                    <p className="text-[0.68rem] uppercase tracking-[0.28em] text-[#ddb786]">
+                      Path to next stop
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-stone-200">
+                      {pathPreview ??
+                        selectedStop?.transitionHint ??
+                        "The route is opening. The next movement cue will appear here."}
+                    </p>
+                  </div>
 
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
@@ -421,19 +518,32 @@ export function MemoryPalaceApp() {
                         Scene load
                       </p>
                       <p className="text-xs text-stone-500">
-                        {readyCount}/{route.stops.length} ready
+                        {readyCount}/{route.stops.length || itemCount} ready
                       </p>
                     </div>
-                    <Progress value={(readyCount / route.stops.length) * 100} />
+                    <Progress
+                      value={
+                        route.stops.length
+                          ? (readyCount / route.stops.length) * 100
+                          : 0
+                      }
+                    />
                     <div className="flex items-center justify-between text-xs text-stone-500">
                       <span>{pendingCount} pending</span>
                       <span>{failedCount} failed</span>
                     </div>
                   </div>
 
+                  {buildStatus ? (
+                    <p className="text-xs uppercase tracking-[0.22em] text-stone-500">
+                      {buildStatus}
+                    </p>
+                  ) : null}
+
                   <div className="flex gap-2">
                     <Button
                       className="flex-1 justify-between rounded-2xl"
+                      disabled={isBuildingRoute || route.stops.length !== itemCount}
                       onClick={() => {
                         setAnswers([]);
                         setCurrentAnswer("");
@@ -446,9 +556,9 @@ export function MemoryPalaceApp() {
                     </Button>
                     <Button
                       className="rounded-2xl"
-                      disabled={!failedCount}
+                      disabled={!failedCount || isBuildingRoute}
                       onClick={() => {
-                        void startImageBatch(route, true).catch((error) => {
+                        void retryFailedImages().catch((error) => {
                           setErrorMessage(
                             error instanceof Error
                               ? error.message
@@ -479,16 +589,6 @@ export function MemoryPalaceApp() {
                     <Progress value={recallProgress} />
                   </div>
 
-                  <div className="rounded-[26px] border border-white/10 bg-white/4 p-4">
-                    <p className="text-[0.68rem] uppercase tracking-[0.28em] text-[#d6ac76]">
-                      {currentStop.locationLabel}
-                    </p>
-                    <p className="mt-2 text-lg text-stone-100">{currentStop.sceneTitle}</p>
-                    <p className="mt-3 text-sm leading-6 text-stone-400">
-                      Type the original item for this stop.
-                    </p>
-                  </div>
-
                   <form
                     className="space-y-3"
                     onSubmit={(event) => {
@@ -515,63 +615,6 @@ export function MemoryPalaceApp() {
                         </span>
                         <ArrowRight className="h-4 w-4" />
                       </Button>
-
-                      <Dialog.Root onOpenChange={setReferenceOpen} open={referenceOpen}>
-                        <Dialog.Trigger asChild>
-                          <Button className="rounded-2xl" type="button" variant="outline">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </Dialog.Trigger>
-                        <Dialog.Portal>
-                          <Dialog.Overlay className="fixed inset-0 z-40 bg-black/68 backdrop-blur-sm" />
-                          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(92vw,880px)] -translate-x-1/2 -translate-y-1/2 rounded-[32px] border border-white/10 bg-[#11100e] p-5 shadow-[0_50px_160px_rgba(0,0,0,0.45)]">
-                            <div className="flex items-start justify-between gap-6">
-                              <div>
-                                <Dialog.Title className="font-display text-3xl text-stone-50">
-                                  {route.routeTitle}
-                                </Dialog.Title>
-                                <Dialog.Description className="mt-2 max-w-xl text-sm leading-6 text-stone-400">
-                                  {route.routeMood}
-                                </Dialog.Description>
-                              </div>
-                              <Dialog.Close asChild>
-                                <Button type="button" variant="ghost">
-                                  Close
-                                </Button>
-                              </Dialog.Close>
-                            </div>
-                            <div className="mt-5 grid gap-3 md:grid-cols-2">
-                              {route.stops.map((stop) => {
-                                const image = imageRecords.find(
-                                  (record) => record.locationId === stop.locationId,
-                                );
-
-                                return (
-                                  <div
-                                    className="rounded-[24px] border border-white/8 bg-white/4 p-4"
-                                    key={stop.locationId}
-                                  >
-                                    <div className="flex items-center justify-between">
-                                      <p className="text-[0.68rem] uppercase tracking-[0.28em] text-stone-500">
-                                        Stop {String(stop.step).padStart(2, "0")}
-                                      </p>
-                                      <p className="text-xs text-stone-500">
-                                        {image?.status ?? "pending"}
-                                      </p>
-                                    </div>
-                                    <p className="mt-3 text-sm text-stone-100">
-                                      {stop.locationLabel}
-                                    </p>
-                                    <p className="mt-1 text-xs text-stone-500">
-                                      {stop.mnemonicCue}
-                                    </p>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </Dialog.Content>
-                        </Dialog.Portal>
-                      </Dialog.Root>
                     </div>
                   </form>
                 </div>
