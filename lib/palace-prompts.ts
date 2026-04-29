@@ -1,10 +1,10 @@
 import type { PalaceRouteStepRequest, PalaceStop } from "@/lib/palace-schema";
 
 export const DEFAULT_ROUTE_MODEL =
-  process.env.HF_ROUTE_MODEL ?? "Qwen/Qwen2.5-72B-Instruct:novita";
+  "Qwen/Qwen2.5-72B-Instruct:novita";
 
 export const DEFAULT_IMAGE_MODEL =
-  process.env.HF_IMAGE_MODEL ?? "black-forest-labs/FLUX.1-schnell";
+  "black-forest-labs/FLUX.1-schnell";
 
 export function getHuggingFaceToken() {
   return (
