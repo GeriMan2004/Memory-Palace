@@ -1,31 +1,27 @@
 "use client";
 
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { PhaseBuild } from "@/components/palace/phase-build";
+import { PhaseGenerate } from "@/components/palace/phase-generate";
+import { PhaseMistakes } from "@/components/palace/phase-mistakes";
+import { PhaseRecall } from "@/components/palace/phase-recall";
+import { PhaseResults } from "@/components/palace/phase-results";
+import { PhaseStudy } from "@/components/palace/phase-study";
+import type { GenerationError } from "@/components/palace/error-state";
+import type { RouteChip } from "@/components/palace/route-chips";
+import type { ImageRecord } from "@/components/palace/types";
+import { findImage } from "@/components/palace/types";
+import { AnimatedText, MorphText } from "@/components/palace/ui/animated-text";
 import {
-  ArrowRight,
-  Brain,
-  RefreshCw,
-  RotateCcw,
-  Sparkles,
-} from "lucide-react";
-import { useDeferredValue, useEffect, useRef, useState } from "react";
-
-import { PalaceStage } from "@/components/palace-stage";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
-import { normalizeItem, type PalaceRoute, type PalaceStop } from "@/lib/palace-schema";
-import { cn } from "@/lib/utils";
-
-type AppPhase = "input" | "route" | "recall" | "results";
-
-type ImageRecord = {
-  error: string | null;
-  imageDataUrl: string | null;
-  locationId: string;
-  status: "pending" | "ready" | "failed" | "skipped";
-  step: number;
-  updatedAt: string;
-};
+  type AppPhase,
+  phaseSubtitle,
+  phaseTitle,
+} from "@/lib/palace-copy";
+import {
+  type PalaceRoute,
+  type PalaceStop,
+} from "@/lib/palace-schema";
 
 type StepRouteResponse = {
   routeMood: string;
@@ -41,139 +37,57 @@ type SingleImageResponse = {
   step: number;
 };
 
-const ITEM_OPTIONS = [3, 4, 5, 6, 7, 8];
+type RecoveryChoice = "retry" | "skip" | "restart";
+
 const DEFAULT_COUNT = 5;
 
-function createItemFields(count: number, previous: string[] = []) {
+function newItems(count: number, previous: string[] = []) {
   return Array.from({ length: count }, (_, index) => previous[index] ?? "");
 }
 
-function getScore(route: PalaceRoute, answers: string[]) {
-  return route.stops.reduce((score, stop, index) => {
-    return score + Number(normalizeItem(answers[index] ?? "") === normalizeItem(stop.item));
-  }, 0);
+function nowIso() {
+  return new Date().toISOString();
 }
 
 export function MemoryPalaceApp() {
-  const [phase, setPhase] = useState<AppPhase>("input");
+  const [phase, setPhase] = useState<AppPhase>("build");
   const [itemCount, setItemCount] = useState(DEFAULT_COUNT);
-  const [items, setItems] = useState(() => createItemFields(DEFAULT_COUNT));
-  const deferredItems = useDeferredValue(items);
+  const [items, setItems] = useState(() => newItems(DEFAULT_COUNT));
   const [route, setRoute] = useState<PalaceRoute | null>(null);
-  const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   const [imageRecords, setImageRecords] = useState<ImageRecord[]>([]);
   const [answers, setAnswers] = useState<string[]>([]);
-  const [currentAnswer, setCurrentAnswer] = useState("");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isBuildingRoute, setIsBuildingRoute] = useState(false);
-  const [buildStatus, setBuildStatus] = useState<string | null>(null);
-  const [pathPreview, setPathPreview] = useState<string | null>(null);
-  const answerInputRef = useRef<HTMLInputElement>(null);
+  const [studyStep, setStudyStep] = useState(1);
+  const [generationStatus, setGenerationStatus] = useState<{
+    kind: "route" | "image";
+    step: number;
+  } | null>(null);
+  const [error, setError] = useState<GenerationError | null>(null);
+  const [generationTotal, setGenerationTotal] = useState(0);
 
-  const currentStop = route ? route.stops[answers.length] : undefined;
-  const correctCount = route ? getScore(route, answers) : 0;
-  const readyCount = imageRecords.filter((image) => image.status === "ready").length;
-  const failedCount = imageRecords.filter((image) => image.status === "failed").length;
-  const pendingCount = imageRecords.filter((image) => image.status === "pending").length;
-  const recallProgress = route ? (answers.length / route.stops.length) * 100 : 0;
-  const selectedStop =
-    route && selectedStopId
-      ? route.stops.find((stop) => stop.locationId === selectedStopId) ?? null
-      : null;
+  const runIdRef = useRef(0);
+  const recoveryRef = useRef<((choice: RecoveryChoice) => void) | null>(null);
 
-  useEffect(() => {
-    if (phase === "recall") {
-      answerInputRef.current?.focus();
-    }
-  }, [phase, answers.length]);
+  const recallStep = answers.length + 1;
 
-  function upsertImageRecord(nextRecord: ImageRecord) {
+  function upsertImageRecord(next: ImageRecord) {
     setImageRecords((current) => {
-      const merged = [
-        ...current.filter(
-          (record) => record.locationId !== nextRecord.locationId,
-        ),
-        nextRecord,
-      ];
-
-      return merged.sort((a, b) => a.step - b.step);
+      const filtered = current.filter(
+        (record) => record.locationId !== next.locationId,
+      );
+      return [...filtered, next].sort((a, b) => a.step - b.step);
     });
   }
 
-  async function generateImageForStop(stop: PalaceStop, routeMood: string) {
-    upsertImageRecord({
-      error: null,
-      imageDataUrl: null,
-      locationId: stop.locationId,
-      status: "pending",
-      step: stop.step,
-      updatedAt: new Date().toISOString(),
-    });
-
-    const response = await fetch("/api/palace-image", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        routeMood,
-        scene: stop,
-      }),
-    });
-
-    const payload = (await response.json()) as
-      | SingleImageResponse
-      | { error?: string };
-
-    if (!response.ok) {
-      upsertImageRecord({
-        error:
-          "error" in payload && payload.error
-            ? payload.error
-            : "Scene image generation failed.",
-        imageDataUrl: null,
-        locationId: stop.locationId,
-        status: "failed",
-        step: stop.step,
-        updatedAt: new Date().toISOString(),
-      });
-      return;
-    }
-
-    const result = payload as SingleImageResponse;
-
-    upsertImageRecord({
-      error: result.error,
-      imageDataUrl: result.imageDataUrl ?? null,
-      locationId: result.locationId,
-      status: result.status,
-      step: result.step,
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  async function requestNextStop({
-    existingStops,
-    routeMood,
-    routeTitle,
-    trimmedItems,
-  }: {
+  async function requestNextStop(args: {
     existingStops: PalaceStop[];
+    items: string[];
     routeMood?: string;
     routeTitle?: string;
-    trimmedItems: string[];
-  }) {
+  }): Promise<StepRouteResponse> {
     const response = await fetch("/api/palace-route", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        existingStops,
-        items: trimmedItems,
-        routeMood,
-        routeTitle,
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args),
     });
 
     const payload = (await response.json()) as
@@ -191,500 +105,383 @@ export function MemoryPalaceApp() {
     return payload as StepRouteResponse;
   }
 
-  async function generateRouteProgressively() {
-    const trimmedItems = items.map((item) => item.trim());
+  async function requestImage(args: {
+    routeMood: string;
+    scene: PalaceStop;
+  }): Promise<SingleImageResponse> {
+    const response = await fetch("/api/palace-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args),
+    });
 
-    if (trimmedItems.some((item) => !item)) {
-      setErrorMessage("Fill every stop before you build the route.");
-      return;
+    const payload = (await response.json()) as
+      | SingleImageResponse
+      | { error?: string };
+
+    if (!response.ok) {
+      throw new Error(
+        "error" in payload && payload.error
+          ? payload.error
+          : "Scene image generation failed.",
+      );
     }
 
-    setErrorMessage(null);
-    setAnswers([]);
-    setCurrentAnswer("");
-    setImageRecords([]);
-    setPathPreview(null);
-    setBuildStatus("Opening the first location...");
-    setIsBuildingRoute(true);
-    setPhase("route");
+    return payload as SingleImageResponse;
+  }
 
-    let draftRouteTitle = "Memory route unfolding";
-    let draftRouteMood = "connected surreal walk";
-    let draftStops: PalaceStop[] = [];
-
-    setRoute({
-      routeMood: draftRouteMood,
-      routeTitle: draftRouteTitle,
-      stops: [],
+  function awaitRecovery(): Promise<RecoveryChoice> {
+    return new Promise((resolve) => {
+      recoveryRef.current = resolve;
     });
-    setSelectedStopId(null);
+  }
 
-    try {
-      for (let index = 0; index < trimmedItems.length; index += 1) {
-        setBuildStatus(`Writing stop ${index + 1} of ${trimmedItems.length}...`);
+  function resolveRecovery(choice: RecoveryChoice) {
+    const resolver = recoveryRef.current;
+    recoveryRef.current = null;
+    setError(null);
+    resolver?.(choice);
+  }
 
-        const step = await requestNextStop({
-          existingStops: draftStops,
-          routeMood: draftStops.length > 0 ? draftRouteMood : undefined,
-          routeTitle: draftStops.length > 0 ? draftRouteTitle : undefined,
-          trimmedItems,
+  async function runGeneration(itemsToBuild: string[]) {
+    runIdRef.current += 1;
+    const myRunId = runIdRef.current;
+    const total = itemsToBuild.length;
+
+    setGenerationTotal(total);
+    setRoute({ routeTitle: "", routeMood: "", stops: [] });
+    setImageRecords([]);
+    setAnswers([]);
+    setError(null);
+    setGenerationStatus(null);
+    setPhase("generate");
+
+    let title = "";
+    let mood = "";
+    let stops: PalaceStop[] = [];
+    let i = 0;
+    let subStep: "route" | "image" = "route";
+
+    while (i < total) {
+      if (runIdRef.current !== myRunId) return;
+
+      if (subStep === "route") {
+        setGenerationStatus({ kind: "route", step: i + 1 });
+        try {
+          const stepPayload = await requestNextStop({
+            existingStops: stops,
+            items: itemsToBuild,
+            routeMood: stops.length > 0 ? mood : undefined,
+            routeTitle: stops.length > 0 ? title : undefined,
+          });
+          if (runIdRef.current !== myRunId) return;
+          title = stepPayload.routeTitle;
+          mood = stepPayload.routeMood;
+          stops = [...stops, stepPayload.stop];
+          setRoute({ routeTitle: title, routeMood: mood, stops: [...stops] });
+          subStep = "image";
+        } catch (err) {
+          if (runIdRef.current !== myRunId) return;
+          setError({
+            stage: "route",
+            step: i + 1,
+            message: err instanceof Error ? err.message : "Unknown error",
+          });
+          const choice = await awaitRecovery();
+          if (runIdRef.current !== myRunId) return;
+          if (choice === "restart") {
+            return;
+          }
+          continue;
+        }
+      } else {
+        const stop = stops[stops.length - 1];
+        setGenerationStatus({ kind: "image", step: i + 1 });
+        upsertImageRecord({
+          locationId: stop.locationId,
+          step: stop.step,
+          status: "pending",
+          imageDataUrl: null,
+          error: null,
+          updatedAt: nowIso(),
         });
-
-        draftRouteTitle = step.routeTitle;
-        draftRouteMood = step.routeMood;
-        draftStops = [...draftStops, step.stop];
-
-        setRoute({
-          routeMood: draftRouteMood,
-          routeTitle: draftRouteTitle,
-          stops: [...draftStops],
-        });
-        setSelectedStopId(step.stop.locationId);
-
-        setBuildStatus(`Rendering scene ${index + 1} of ${trimmedItems.length}...`);
-        await generateImageForStop(step.stop, draftRouteMood);
-
-        if (index < trimmedItems.length - 1) {
-          setPathPreview(step.stop.transitionHint);
-          setBuildStatus(`Path to next stop: ${step.stop.transitionHint}`);
+        try {
+          const result = await requestImage({ routeMood: mood, scene: stop });
+          if (runIdRef.current !== myRunId) return;
+          upsertImageRecord({
+            locationId: stop.locationId,
+            step: stop.step,
+            status: "ready",
+            imageDataUrl: result.imageDataUrl ?? null,
+            error: null,
+            updatedAt: nowIso(),
+          });
+          i += 1;
+          subStep = "route";
+        } catch (err) {
+          if (runIdRef.current !== myRunId) return;
+          const message = err instanceof Error ? err.message : "Unknown error";
+          upsertImageRecord({
+            locationId: stop.locationId,
+            step: stop.step,
+            status: "failed",
+            imageDataUrl: null,
+            error: message,
+            updatedAt: nowIso(),
+          });
+          setError({ stage: "image", step: i + 1, message });
+          const choice = await awaitRecovery();
+          if (runIdRef.current !== myRunId) return;
+          if (choice === "restart") {
+            return;
+          }
+          if (choice === "skip") {
+            upsertImageRecord({
+              locationId: stop.locationId,
+              step: stop.step,
+              status: "skipped",
+              imageDataUrl: null,
+              error: null,
+              updatedAt: nowIso(),
+            });
+            i += 1;
+            subStep = "route";
+          }
         }
       }
-
-      setBuildStatus("Journey ready. Study the path and start recall.");
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Unable to build the progressive memory route.",
-      );
-      setBuildStatus(null);
-    } finally {
-      setIsBuildingRoute(false);
     }
+
+    if (runIdRef.current !== myRunId) return;
+    setGenerationStatus(null);
+    setStudyStep(1);
+    setPhase("study");
   }
 
-  async function retryFailedImages() {
-    if (!route) {
-      return;
-    }
+  const handleStartBuild = useCallback(() => {
+    const trimmed = items.map((item) => item.trim());
+    if (trimmed.some((item) => !item)) return;
+    void runGeneration(trimmed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
 
-    const failed = imageRecords
-      .filter((record) => record.status === "failed")
-      .sort((a, b) => a.step - b.step);
-
-    if (!failed.length) {
-      return;
-    }
-
-    setBuildStatus("Retrying failed scenes...");
-
-    for (const failedRecord of failed) {
-      const stop = route.stops.find(
-        (candidate) => candidate.locationId === failedRecord.locationId,
-      );
-
-      if (!stop) {
-        continue;
-      }
-
-      await generateImageForStop(stop, route.routeMood);
-    }
-
-    setBuildStatus("Retry complete.");
+  function handleRebuildFromMisses(missedItems: string[]) {
+    setItems(missedItems);
+    setItemCount(missedItems.length);
+    void runGeneration(missedItems);
   }
 
-  function handleCountChange(nextCount: number) {
-    setItemCount(nextCount);
-    setItems((currentItems) => createItemFields(nextCount, currentItems));
-  }
-
-  function handleSubmitCurrentAnswer() {
-    if (!route || !currentStop || !currentAnswer.trim()) {
-      return;
-    }
-
-    const nextAnswers = [...answers, currentAnswer.trim()];
-
-    setAnswers(nextAnswers);
-    setCurrentAnswer("");
-
-    if (nextAnswers.length === route.stops.length) {
-      setPhase("results");
-      return;
-    }
-  }
-
-  function handleRecallReset() {
+  function handleRestartRun() {
+    runIdRef.current += 1;
+    recoveryRef.current = null;
+    setError(null);
+    setGenerationStatus(null);
+    setGenerationTotal(0);
+    setRoute(null);
+    setImageRecords([]);
     setAnswers([]);
-    setCurrentAnswer("");
+    setStudyStep(1);
+    setPhase("build");
+  }
+
+  function handleHardRestart() {
+    handleRestartRun();
+    setItemCount(DEFAULT_COUNT);
+    setItems(newItems(DEFAULT_COUNT));
+  }
+
+  function handleCountChange(next: number) {
+    setItemCount(next);
+    setItems((current) => newItems(next, current));
+  }
+
+  function handleItemChange(index: number, value: string) {
+    setItems((current) =>
+      current.map((entry, entryIndex) => (entryIndex === index ? value : entry)),
+    );
+  }
+
+  function handleNextStudy() {
+    if (!route) return;
+    setStudyStep((current) => Math.min(route.stops.length, current + 1));
+  }
+
+  function handlePrevStudy() {
+    setStudyStep((current) => Math.max(1, current - 1));
+  }
+
+  function handleJumpStudy(step: number) {
+    setStudyStep(step);
+  }
+
+  function handleStartRecall() {
+    if (!route) return;
+    setAnswers([]);
     setPhase("recall");
   }
 
-  function handleRestart() {
-    setPhase("input");
-    setItemCount(DEFAULT_COUNT);
-    setItems(createItemFields(DEFAULT_COUNT));
-    setRoute(null);
-    setSelectedStopId(null);
-    setImageRecords([]);
-    setAnswers([]);
-    setCurrentAnswer("");
-    setErrorMessage(null);
-    setBuildStatus(null);
-    setPathPreview(null);
-    setIsBuildingRoute(false);
+  function handleSubmitRecall(answer: string) {
+    if (!route) return;
+    const next = [...answers, answer];
+    setAnswers(next);
+    if (next.length === route.stops.length) {
+      setPhase("results");
+    }
   }
 
-  const phaseLabel = {
-    input: "Build",
-    recall: "Recall",
-    results: "Result",
-    route: "Study",
-  }[phase];
+  function handleReviewMisses() {
+    setPhase("mistakes");
+  }
+
+  const chipsForGenerate = useCallback((): RouteChip[] => {
+    const total = generationTotal || itemCount;
+    const builtCount = route?.stops.length ?? 0;
+    return Array.from({ length: total }, (_, index) => {
+      const step = index + 1;
+      const stop = route?.stops[index];
+      const image = stop ? findImage(imageRecords, stop.locationId) : undefined;
+
+      if (error && step === error.step) {
+        return { step, state: "failed" };
+      }
+      if (step <= builtCount) {
+        if (image?.status === "ready") return { step, state: "ready" };
+        if (image?.status === "failed") return { step, state: "failed" };
+        if (image?.status === "skipped") return { step, state: "skipped" };
+        if (image?.status === "pending" && generationStatus?.step === step) {
+          return { step, state: "rendering" };
+        }
+        return { step, state: "ready" };
+      }
+      if (generationStatus?.step === step) {
+        return {
+          step,
+          state: generationStatus.kind === "route" ? "generating" : "rendering",
+        };
+      }
+      return { step, state: "pending" };
+    });
+  }, [generationStatus, generationTotal, imageRecords, itemCount, route, error]);
+
+  useEffect(() => {
+    if (phase !== "study") return;
+    setStudyStep((current) => {
+      if (!route) return 1;
+      return Math.min(Math.max(1, current), route.stops.length);
+    });
+  }, [phase, route]);
+
+  function renderPhase() {
+    if (phase === "build") {
+      return (
+        <PhaseBuild
+          count={itemCount}
+          items={items}
+          onCountChange={handleCountChange}
+          onItemChange={handleItemChange}
+          onSubmit={handleStartBuild}
+        />
+      );
+    }
+
+    if (phase === "generate") {
+      return (
+        <PhaseGenerate
+          total={generationTotal || itemCount}
+          status={generationStatus}
+          chips={chipsForGenerate()}
+          error={error}
+          onRetry={() => resolveRecovery("retry")}
+          onSkipImage={() => resolveRecovery("skip")}
+          onCancel={handleRestartRun}
+          onRestart={() => {
+            resolveRecovery("restart");
+            handleRestartRun();
+          }}
+        />
+      );
+    }
+
+    if (phase === "study" && route) {
+      return (
+        <PhaseStudy
+          route={route}
+          images={imageRecords}
+          currentStep={studyStep}
+          onPrev={handlePrevStudy}
+          onNext={handleNextStudy}
+          onJump={handleJumpStudy}
+          onStartRecall={handleStartRecall}
+        />
+      );
+    }
+
+    if (phase === "recall" && route) {
+      return (
+        <PhaseRecall
+          route={route}
+          images={imageRecords}
+          currentStep={recallStep}
+          onSubmit={handleSubmitRecall}
+        />
+      );
+    }
+
+    if (phase === "results" && route) {
+      return (
+        <PhaseResults
+          route={route}
+          images={imageRecords}
+          answers={answers}
+          onReviewMisses={handleReviewMisses}
+          onRestart={handleHardRestart}
+        />
+      );
+    }
+
+    if (phase === "mistakes" && route) {
+      return (
+        <PhaseMistakes
+          route={route}
+          images={imageRecords}
+          answers={answers}
+          onRebuildFromMisses={handleRebuildFromMisses}
+          onDone={handleHardRestart}
+        />
+      );
+    }
+
+    return null;
+  }
 
   return (
-    <div className="min-h-dvh overflow-hidden bg-[radial-gradient(circle_at_top,rgba(250,230,202,0.14),transparent_25%),radial-gradient(circle_at_bottom_right,rgba(135,86,54,0.14),transparent_28%),linear-gradient(180deg,#080707,#11100e_38%,#090807)] text-stone-100">
-      <div className="mx-auto flex min-h-dvh w-full max-w-[1560px] flex-col px-4 py-4 sm:px-6 lg:px-8">
-        <header className="mb-4 flex items-center justify-between rounded-full border border-white/10 bg-black/18 px-5 py-3 backdrop-blur">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-[linear-gradient(135deg,rgba(247,226,196,0.18),rgba(199,140,77,0.2))]">
-              <Brain className="h-[18px] w-[18px] text-[#e3bd88]" />
-            </div>
-            <div>
-              <p className="text-[0.68rem] uppercase tracking-[0.3em] text-stone-500">
-                Memory Palace
-              </p>
-              <p className="text-sm text-stone-300">AI route memory game</p>
-            </div>
-          </div>
-
-          <div className="rounded-full border border-white/10 bg-white/4 px-3 py-1.5 text-[0.68rem] uppercase tracking-[0.3em] text-stone-300">
-            {phaseLabel}
-          </div>
-        </header>
-
-        <main className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1.18fr)_420px]">
-          <PalaceStage
-            answers={answers}
-            currentStop={currentStop}
-            images={imageRecords}
-            itemCount={itemCount}
-            items={deferredItems}
-            onSelectStop={setSelectedStopId}
-            phase={phase}
-            route={route}
-            selectedStopId={selectedStopId}
-          />
-
-          <aside className="flex min-h-[420px] flex-col overflow-hidden rounded-[34px] border border-white/10 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_32%),linear-gradient(180deg,rgba(19,17,15,0.96),rgba(10,10,9,0.98))] p-5 shadow-[0_40px_120px_rgba(0,0,0,0.28)]">
-            <div className="space-y-3 border-b border-white/8 pb-5">
-              <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/4 px-3 py-1 text-[0.68rem] uppercase tracking-[0.28em] text-stone-400">
-                <Sparkles className="h-3.5 w-3.5 text-[#d8ad73]" />
-                One route. One run.
-              </p>
-              <div className="space-y-2">
-                <h1 className="font-display text-[2.65rem] leading-none text-stone-50">
-                  Walk it once. Keep it.
-                </h1>
-                <p className="max-w-sm text-sm leading-6 text-stone-400">
-                  Turn a short sequence into one vivid path, study it, then replay
-                  the items in order.
-                </p>
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto pt-5">
-              {phase === "input" ? (
-                <div className="space-y-5">
-                  <div className="space-y-3">
-                    <p className="text-[0.68rem] uppercase tracking-[0.28em] text-stone-500">
-                      How many items
-                    </p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {ITEM_OPTIONS.map((option) => (
-                        <Button
-                          className={cn(
-                            "justify-center rounded-2xl",
-                            itemCount === option &&
-                              "border-[#d7ad77] bg-[linear-gradient(180deg,rgba(223,182,127,0.18),rgba(255,255,255,0.05))] text-stone-50",
-                          )}
-                          key={option}
-                          onClick={() => handleCountChange(option)}
-                          size="sm"
-                          type="button"
-                          variant={itemCount === option ? "outline" : "ghost"}
-                        >
-                          {option}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[0.68rem] uppercase tracking-[0.28em] text-stone-500">
-                        Enter in order
-                      </p>
-                      <p className="text-xs text-stone-500">{itemCount} stops</p>
-                    </div>
-                    <div className="space-y-2">
-                      {items.map((item, index) => (
-                        <div className="flex items-center gap-2" key={`item-${index + 1}`}>
-                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/4 text-sm text-stone-400">
-                            {String(index + 1).padStart(2, "0")}
-                          </div>
-                          <Input
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setItems((currentItems) =>
-                                currentItems.map((entry, entryIndex) =>
-                                  entryIndex === index ? value : entry,
-                                ),
-                              );
-                            }}
-                            placeholder={`Item ${index + 1}`}
-                            value={item}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <Button
-                    className="w-full justify-between rounded-2xl px-5"
-                    disabled={isBuildingRoute}
-                    onClick={() => {
-                      void generateRouteProgressively();
-                    }}
-                    type="button"
-                  >
-                    <span>{isBuildingRoute ? "Building route" : "Build palace"}</span>
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                </div>
-              ) : null}
-
-              {phase === "route" && route ? (
-                <div className="space-y-5">
-                  <div className="space-y-2">
-                    <p className="text-[0.68rem] uppercase tracking-[0.28em] text-stone-500">
-                      Route
-                    </p>
-                    <div>
-                      <h2 className="font-display text-3xl text-stone-50">
-                        {route.routeTitle}
-                      </h2>
-                      <p className="mt-2 text-sm leading-6 text-stone-400">
-                        {route.routeMood}
-                      </p>
-                    </div>
-                  </div>
-
-                  {selectedStop ? (
-                    <div className="rounded-[26px] border border-white/10 bg-white/4 p-4">
-                      <div className="space-y-4">
-                        <div>
-                          <p className="text-[0.68rem] uppercase tracking-[0.28em] text-[#d6ac76]">
-                            {selectedStop.locationLabel}
-                          </p>
-                          <p className="mt-2 text-lg text-stone-100">
-                            {selectedStop.sceneTitle}
-                          </p>
-                          <p className="mt-3 inline-flex items-center rounded-full border border-[#dfb884]/38 bg-[#dfb884]/14 px-3 py-1 text-[0.64rem] uppercase tracking-[0.22em] text-[#f0d3ad]">
-                            Key Word: {selectedStop.item}
-                          </p>
-                        </div>
-                        <p className="text-sm leading-6 text-stone-400">
-                          {selectedStop.mnemonicCue}
-                        </p>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <div className="rounded-[22px] border border-[#d7ad77]/20 bg-[#d7ad77]/6 p-4">
-                    <p className="text-[0.68rem] uppercase tracking-[0.28em] text-[#ddb786]">
-                      Path to next stop
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-stone-200">
-                      {pathPreview ??
-                        selectedStop?.transitionHint ??
-                        "The route is opening. The next movement cue will appear here."}
-                    </p>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[0.68rem] uppercase tracking-[0.28em] text-stone-500">
-                        Scene load
-                      </p>
-                      <p className="text-xs text-stone-500">
-                        {readyCount}/{route.stops.length || itemCount} ready
-                      </p>
-                    </div>
-                    <Progress
-                      value={
-                        route.stops.length
-                          ? (readyCount / route.stops.length) * 100
-                          : 0
-                      }
-                    />
-                    <div className="flex items-center justify-between text-xs text-stone-500">
-                      <span>{pendingCount} pending</span>
-                      <span>{failedCount} failed</span>
-                    </div>
-                  </div>
-
-                  {buildStatus ? (
-                    <p className="text-xs uppercase tracking-[0.22em] text-stone-500">
-                      {buildStatus}
-                    </p>
-                  ) : null}
-
-                  <div className="flex gap-2">
-                    <Button
-                      className="flex-1 justify-between rounded-2xl"
-                      disabled={isBuildingRoute || route.stops.length !== itemCount}
-                      onClick={() => {
-                        setAnswers([]);
-                        setCurrentAnswer("");
-                        setPhase("recall");
-                      }}
-                      type="button"
-                    >
-                      <span>Start recall</span>
-                      <Brain className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      className="rounded-2xl"
-                      disabled={!failedCount || isBuildingRoute}
-                      onClick={() => {
-                        void retryFailedImages().catch((error) => {
-                          setErrorMessage(
-                            error instanceof Error
-                              ? error.message
-                              : "Unable to retry failed images.",
-                          );
-                        });
-                      }}
-                      type="button"
-                      variant="outline"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              {phase === "recall" && route && currentStop ? (
-                <div className="space-y-5">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[0.68rem] uppercase tracking-[0.28em] text-stone-500">
-                        Recall
-                      </p>
-                      <p className="text-xs text-stone-500">
-                        {answers.length + 1}/{route.stops.length}
-                      </p>
-                    </div>
-                    <Progress value={recallProgress} />
-                  </div>
-
-                  <form
-                    className="space-y-3"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      handleSubmitCurrentAnswer();
-                    }}
-                  >
-                    <Input
-                      onChange={(event) => setCurrentAnswer(event.target.value)}
-                      placeholder="Type the item"
-                      ref={answerInputRef}
-                      value={currentAnswer}
-                    />
-                    <div className="flex gap-2">
-                      <Button
-                        className="flex-1 justify-between rounded-2xl"
-                        disabled={!currentAnswer.trim()}
-                        type="submit"
-                      >
-                        <span>
-                          {answers.length + 1 === route.stops.length
-                            ? "Finish run"
-                            : "Next stop"}
-                        </span>
-                        <ArrowRight className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </form>
-                </div>
-              ) : null}
-
-              {phase === "results" && route ? (
-                <div className="space-y-5">
-                  <div className="space-y-2">
-                    <p className="text-[0.68rem] uppercase tracking-[0.28em] text-stone-500">
-                      Score
-                    </p>
-                    <div className="flex items-end gap-3">
-                      <p className="font-display text-6xl leading-none text-stone-50">
-                        {correctCount}
-                      </p>
-                      <p className="pb-2 text-stone-400">/ {route.stops.length}</p>
-                    </div>
-                    <p className="text-sm leading-6 text-stone-400">
-                      {correctCount === route.stops.length
-                        ? "Perfect route retention."
-                        : "Run it again and tighten the weak stops."}
-                    </p>
-                  </div>
-
-                  <div className="rounded-[26px] border border-white/10 bg-white/4 p-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[0.68rem] uppercase tracking-[0.28em] text-stone-500">
-                        Accuracy
-                      </p>
-                      <p className="text-sm text-stone-300">
-                        {Math.round((correctCount / route.stops.length) * 100)}%
-                      </p>
-                    </div>
-                    <div className="mt-3">
-                      <Progress
-                        value={(correctCount / route.stops.length) * 100}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button
-                      className="flex-1 justify-between rounded-2xl"
-                      onClick={handleRecallReset}
-                      type="button"
-                    >
-                      <span>Retry recall</span>
-                      <RotateCcw className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      className="rounded-2xl"
-                      onClick={handleRestart}
-                      type="button"
-                      variant="outline"
-                    >
-                      Restart
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              {errorMessage ? (
-                <div className="mt-5 rounded-2xl border border-rose-400/18 bg-rose-400/8 px-4 py-3 text-sm leading-6 text-rose-100">
-                  {errorMessage}
-                </div>
-              ) : null}
-            </div>
-          </aside>
-        </main>
+    <div className="min-h-dvh bg-bg text-fg">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-10 px-6 py-10 sm:py-16">
+        <Header phase={phase} />
+        <main>{renderPhase()}</main>
       </div>
     </div>
+  );
+}
+
+function Header({ phase }: { phase: AppPhase }) {
+  return (
+    <header className="flex items-center justify-between gap-6 border-b border-border pb-6">
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-subtle">
+          Memory Palace
+        </p>
+        <AnimatedText
+          as="p"
+          text={phaseSubtitle(phase)}
+          cycleKey={phase}
+          className="text-sm leading-snug text-muted"
+        />
+      </div>
+      <MorphText
+        as="p"
+        text={phaseTitle(phase)}
+        className="font-mono text-[10px] uppercase tracking-[0.36em] text-fg"
+      />
+    </header>
   );
 }
