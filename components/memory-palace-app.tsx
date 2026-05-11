@@ -15,6 +15,9 @@ import { findImage } from "@/components/palace/types";
 import { AnimatedText, MorphText } from "@/components/palace/ui/animated-text";
 import {
   type AppPhase,
+  AI_DISCLOSURE_LINE,
+  APP_KICKER,
+  phaseAiHint,
   phaseSubtitle,
   phaseTitle,
 } from "@/lib/palace-copy";
@@ -457,7 +460,7 @@ export function MemoryPalaceApp() {
     <div className="min-h-dvh bg-bg text-fg">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-10 px-6 py-10 sm:py-16">
         <Header phase={phase} />
-        <main>{renderPhase()}</main>
+        <main className="min-w-0">{renderPhase()}</main>
       </div>
     </div>
   );
@@ -465,22 +468,33 @@ export function MemoryPalaceApp() {
 
 function Header({ phase }: { phase: AppPhase }) {
   return (
-    <header className="flex items-center justify-between gap-6 border-b border-border pb-6">
-      <div className="flex min-w-0 flex-col gap-1.5">
-        <p className="font-mono text-[10px] uppercase tracking-[0.36em] text-subtle">
-          Memory Palace
+    <header className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+      <div className="flex min-w-0 flex-col gap-2">
+        <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-subtle">
+          {APP_KICKER}
         </p>
         <AnimatedText
           as="p"
           text={phaseSubtitle(phase)}
           cycleKey={phase}
-          className="text-sm leading-snug text-muted"
+          className="text-base font-medium leading-snug text-fg"
         />
+        <AnimatedText
+          as="p"
+          text={phaseAiHint(phase)}
+          cycleKey={phase}
+          delayMs={80}
+          staggerMs={32}
+          className="max-w-md text-xs leading-relaxed text-subtle"
+        />
+        <p className="max-w-md font-mono text-[10px] leading-relaxed tracking-wide text-subtle/80">
+          {AI_DISCLOSURE_LINE}
+        </p>
       </div>
       <MorphText
         as="p"
         text={phaseTitle(phase)}
-        className="font-mono text-[10px] uppercase tracking-[0.36em] text-fg"
+        className="shrink-0 font-mono text-[10px] uppercase tracking-[0.36em] text-fg"
       />
     </header>
   );

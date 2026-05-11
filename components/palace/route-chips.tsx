@@ -77,7 +77,7 @@ export function RouteChips({
                 aria-label={label}
                 aria-current={chip.state === "current" ? "step" : undefined}
                 className={cn(
-                  "inline-flex h-8 items-center justify-center border px-2.5 text-fg outline-none",
+                  "inline-flex h-8 items-center justify-center rounded-sm border px-2.5 text-fg outline-none",
                   "transition-[transform,border-color,background-color,color,box-shadow] duration-150 ease-out",
                   "focus-visible:ring-2 focus-visible:ring-fg/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
                   "hover:-translate-y-px hover:border-fg/60",
@@ -97,7 +97,7 @@ export function RouteChips({
               aria-label={label}
               aria-current={chip.state === "current" ? "step" : undefined}
               className={cn(
-                "inline-flex h-8 items-center justify-center border px-2.5 text-fg transition-colors duration-150 ease-out",
+                "inline-flex h-8 items-center justify-center rounded-sm border px-2.5 text-fg transition-colors duration-150 ease-out",
                 stateClass,
               )}
             >

@@ -10,7 +10,7 @@ export const Input = React.forwardRef<
     <input
       ref={ref}
       className={cn(
-        "flex h-12 w-full rounded-none border border-border bg-transparent px-4 text-base text-fg outline-none",
+        "flex h-12 w-full rounded-sm border border-border bg-transparent px-4 text-base text-fg outline-none",
         "transition-[border-color,background-color] duration-150 ease-out",
         "placeholder:text-subtle",
         "hover:border-border-strong",

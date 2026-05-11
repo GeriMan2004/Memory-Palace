@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/palace/ui/button";
 import { AnimatedText, MorphText } from "@/components/palace/ui/animated-text";
+import { SpawnGroup } from "@/components/palace/ui/spawn-in";
 import { RouteChips, type RouteChip } from "@/components/palace/route-chips";
 import { SceneImage } from "@/components/palace/scene-image";
 import { CTA, formatStopLabel } from "@/lib/palace-copy";
@@ -40,7 +41,11 @@ export function PhaseStudy({
   }));
 
   return (
-    <div className="flex flex-col gap-8">
+    <SpawnGroup
+      className="flex flex-col gap-8"
+      cycleKey={`study-${route.routeTitle}-${currentStep}`}
+      staggerMs={48}
+    >
       <RouteChips
         chips={chips}
         interactive
@@ -73,7 +78,7 @@ export function PhaseStudy({
             />
           </div>
 
-          <div className="border border-border-strong p-4">
+          <div className="rounded-sm border border-border-strong p-4">
             <p className="text-[11px] uppercase tracking-[0.28em] text-muted">
               Key item
             </p>
@@ -122,7 +127,7 @@ export function PhaseStudy({
           </div>
         </div>
       </div>
-    </div>
+    </SpawnGroup>
   );
 }
 

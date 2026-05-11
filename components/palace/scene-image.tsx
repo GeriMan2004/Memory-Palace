@@ -19,7 +19,7 @@ export function SceneImage({ alt, image, className }: SceneImageProps) {
   return (
     <div
       className={cn(
-        "relative aspect-square w-full overflow-hidden border border-border bg-surface",
+        "relative aspect-square w-full overflow-hidden rounded-sm border border-border bg-surface",
         className,
       )}
     >

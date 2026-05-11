@@ -1,9 +1,12 @@
 "use client";
 
+import type { CSSProperties } from "react";
+
 import Image from "next/image";
 
 import { Button } from "@/components/palace/ui/button";
 import { MorphText } from "@/components/palace/ui/animated-text";
+import { SpawnGroup } from "@/components/palace/ui/spawn-in";
 import { RouteChips, type RouteChip } from "@/components/palace/route-chips";
 import { CTA, formatStopLabel } from "@/lib/palace-copy";
 import { normalizeItem, type PalaceRoute } from "@/lib/palace-schema";
@@ -41,7 +44,7 @@ export function PhaseResults({
   }));
 
   return (
-    <div className="flex flex-col gap-8">
+    <SpawnGroup className="flex flex-col gap-8" staggerMs={48}>
       <RouteChips chips={chips} ariaLabel="Run results" />
 
       <ScoreDisplay
@@ -63,7 +66,7 @@ export function PhaseResults({
               key={stop.locationId}
               className="flex items-center gap-4 py-3"
             >
-              <div className="relative h-14 w-14 shrink-0 overflow-hidden border border-border bg-surface">
+              <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-sm border border-border bg-surface">
                 {src ? (
                   <Image
                     alt={stop.sceneTitle}
@@ -88,7 +91,7 @@ export function PhaseResults({
               </div>
               <span
                 className={cn(
-                  "border px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.18em]",
+                  "rounded-sm border px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.18em]",
                   isCorrect
                     ? "border-success/60 text-success"
                     : "border-danger/60 text-danger",
@@ -105,7 +108,7 @@ export function PhaseResults({
         {hasMisses ? (
           <>
             <Button onClick={onReviewMisses}>{CTA.reviewMisses}</Button>
-            <Button onClick={onRestart} variant="ghost">
+            <Button onClick={onRestart} variant="outline">
               {CTA.restart}
             </Button>
           </>
@@ -113,7 +116,7 @@ export function PhaseResults({
           <Button onClick={onRestart}>{CTA.restart}</Button>
         )}
       </div>
-    </div>
+    </SpawnGroup>
   );
 }
 
@@ -141,14 +144,14 @@ function ScoreDisplay({
         <span
           aria-label={`${correctCount} of ${total}`}
           className="motion-spawn-fade font-mono text-7xl font-semibold leading-none tracking-tighter text-fg tabular-nums"
-          style={{ "--spawn-delay": "0ms" } as React.CSSProperties}
+          style={{ "--spawn-delay": "0ms" } as CSSProperties}
         >
           {animatedCount}
         </span>
         <span
           aria-hidden
           className="motion-spawn-fade text-2xl text-subtle tabular-nums"
-          style={{ "--spawn-delay": "120ms" } as React.CSSProperties}
+          style={{ "--spawn-delay": "120ms" } as CSSProperties}
         >
           / {total}
         </span>

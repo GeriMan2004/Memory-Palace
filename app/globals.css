@@ -128,6 +128,17 @@ select {
   }
 }
 
+@keyframes spawn-scale {
+  0% {
+    opacity: 0;
+    transform: translateY(var(--motion-spawn-distance)) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .motion-spawn-word {
   display: inline-block;
   opacity: 0;
@@ -152,6 +163,14 @@ select {
   animation: spinner-rotate 0.7s linear infinite;
 }
 
+.motion-spawn-block {
+  opacity: 0;
+  transform: translateY(var(--motion-spawn-distance)) scale(0.98);
+  animation: spawn-scale var(--motion-spawn-duration) var(--ease-out-soft) forwards;
+  animation-delay: var(--spawn-delay, 0ms);
+  will-change: opacity, transform;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -171,6 +190,12 @@ select {
   }
 
   .motion-morph {
+    animation: none;
+  }
+
+  .motion-spawn-block {
+    opacity: 1;
+    transform: none;
     animation: none;
   }
 }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/palace/ui/button";
 import { Input } from "@/components/palace/ui/input";
+import { SpawnGroup } from "@/components/palace/ui/spawn-in";
 import { RouteChips, type RouteChip } from "@/components/palace/route-chips";
 import { SceneImage } from "@/components/palace/scene-image";
 import { CTA, formatStopLabel } from "@/lib/palace-copy";
@@ -35,7 +36,11 @@ export function PhaseRecall({
   });
 
   return (
-    <div className="flex flex-col gap-8">
+    <SpawnGroup
+      className="flex flex-col gap-8"
+      cycleKey={currentStep}
+      staggerMs={44}
+    >
       <div className="flex items-center justify-between gap-4">
         <RouteChips chips={chips} ariaLabel="Recall progress" />
         <p className="font-mono text-[11px] uppercase tracking-[0.28em] text-muted">
@@ -55,7 +60,7 @@ export function PhaseRecall({
         total={total}
         onSubmit={onSubmit}
       />
-    </div>
+    </SpawnGroup>
   );
 }
 

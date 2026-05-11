@@ -46,7 +46,7 @@ export function ErrorState({
           {retryLabel}
         </Button>
         {error.stage === "image" && onSkipImage ? (
-          <Button onClick={onSkipImage} variant="ghost">
+          <Button onClick={onSkipImage} variant="outline">
             {CTA.skipImage}
           </Button>
         ) : null}

@@ -3,6 +3,7 @@
 import Image from "next/image";
 
 import { Button } from "@/components/palace/ui/button";
+import { SpawnGroup } from "@/components/palace/ui/spawn-in";
 import { RouteChips, type RouteChip } from "@/components/palace/route-chips";
 import { CTA, formatStopLabel } from "@/lib/palace-copy";
 import { normalizeItem, type PalaceRoute, type PalaceStop } from "@/lib/palace-schema";
@@ -42,7 +43,7 @@ export function PhaseMistakes({
   }));
 
   return (
-    <div className="flex flex-col gap-8">
+    <SpawnGroup className="flex flex-col gap-8" staggerMs={48}>
       <RouteChips chips={chips} ariaLabel="Missed stops" />
 
       <div>
@@ -62,7 +63,7 @@ export function PhaseMistakes({
           return (
             <li
               key={stop.locationId}
-              className="flex flex-col border border-border"
+              className="flex flex-col rounded-sm border border-border"
             >
               <div className="relative aspect-[4/3] w-full overflow-hidden bg-surface">
                 {src ? (
@@ -98,23 +99,24 @@ export function PhaseMistakes({
         })}
       </ul>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          onClick={() => onRebuildFromMisses(missed.map(({ stop }) => stop.item))}
-          disabled={missed.length < 3}
-        >
-          {CTA.buildFromMisses}
-        </Button>
-        <Button onClick={onDone} variant="ghost">
-          {CTA.done}
-        </Button>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            onClick={() => onRebuildFromMisses(missed.map(({ stop }) => stop.item))}
+            disabled={missed.length < 3}
+          >
+            {CTA.buildFromMisses}
+          </Button>
+          <Button onClick={onDone} variant="outline">
+            {CTA.done}
+          </Button>
+        </div>
+        {missed.length < 3 ? (
+          <p className="text-xs text-subtle">
+            A new palace needs at least 3 stops. Add more misses to build again.
+          </p>
+        ) : null}
       </div>
-
-      {missed.length < 3 ? (
-        <p className="text-xs text-subtle">
-          A new palace needs at least 3 stops. Add more misses to build again.
-        </p>
-      ) : null}
-    </div>
+    </SpawnGroup>
   );
 }

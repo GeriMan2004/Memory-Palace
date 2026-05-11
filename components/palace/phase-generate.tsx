@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/palace/ui/button";
 import { MorphText } from "@/components/palace/ui/animated-text";
+import { SpawnGroup } from "@/components/palace/ui/spawn-in";
 import { ErrorState, type GenerationError } from "@/components/palace/error-state";
 import { RouteChips, type RouteChip } from "@/components/palace/route-chips";
 import { CTA, generationLine } from "@/lib/palace-copy";
@@ -28,7 +29,7 @@ export function PhaseGenerate({
   onRestart,
 }: PhaseGenerateProps) {
   return (
-    <div className="flex flex-col gap-10" aria-busy={!error}>
+    <SpawnGroup className="flex flex-col gap-10" staggerMs={56}>
       <RouteChips chips={chips} ariaLabel="Generation progress" />
 
       {error ? (
@@ -64,11 +65,11 @@ export function PhaseGenerate({
       )}
 
       <div>
-        <Button onClick={onCancel} variant="ghost" size="sm">
+        <Button onClick={onCancel} variant="outline" size="sm">
           {CTA.cancelRun}
         </Button>
       </div>
-    </div>
+    </SpawnGroup>
   );
 }
 
