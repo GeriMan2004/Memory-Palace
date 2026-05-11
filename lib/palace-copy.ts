@@ -70,10 +70,6 @@ export function formatStopLabel(step: number, total: number) {
   return `Stop ${pad2(step)} of ${pad2(total)}`;
 }
 
-export function formatStopShort(step: number, total: number) {
-  return `${pad2(step)} / ${pad2(total)}`;
-}
-
 export function generationLine(
   kind: Exclude<GenerationKind, "idle">,
   step: number,

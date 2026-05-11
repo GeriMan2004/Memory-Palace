@@ -2,8 +2,6 @@
 
 import * as React from "react";
 
-import { cn } from "@/lib/utils";
-
 type SpawnGroupProps = {
   as?: React.ElementType;
   children: React.ReactNode;
@@ -45,37 +43,5 @@ export function SpawnGroup({
         </div>
       ))}
     </Component>
-  );
-}
-
-type SpawnItemProps = {
-  children: React.ReactNode;
-  delayMs?: number;
-  className?: string;
-  /** `block` uses scale + fade; `fade` matches text spawn-fade. */
-  motion?: "block" | "fade";
-};
-
-export function SpawnItem({
-  children,
-  delayMs = 0,
-  className,
-  motion = "block",
-}: SpawnItemProps) {
-  return (
-    <div
-      className={cn(
-        motion === "block" ? "motion-spawn-block" : "motion-spawn-fade",
-        "w-full min-w-0",
-        className,
-      )}
-      style={
-        {
-          "--spawn-delay": `${delayMs}ms`,
-        } as React.CSSProperties
-      }
-    >
-      {children}
-    </div>
   );
 }
