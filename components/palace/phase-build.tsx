@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatedText } from "@/components/palace/ui/animated-text";
 import { Button } from "@/components/palace/ui/button";
 import { Input } from "@/components/palace/ui/input";
 import { SpawnGroup } from "@/components/palace/ui/spawn-in";
@@ -35,12 +36,13 @@ export function PhaseBuild({
         }
       }}
     >
-      <SpawnGroup
-        className="flex flex-col gap-10"
-        cycleKey={`build-${count}`}
-        staggerMs={52}
-      >
-        <p className="text-sm leading-relaxed text-muted">{APP_DESCRIPTION}</p>
+      <SpawnGroup className="flex flex-col gap-10" staggerMs={52}>
+        <AnimatedText
+          as="p"
+          text={APP_DESCRIPTION}
+          staggerMs={30}
+          className="text-sm leading-relaxed text-muted"
+        />
 
         <RouteChips
           chips={Array.from({ length: count }, (_, index) => ({
@@ -102,7 +104,13 @@ export function PhaseBuild({
         </section>
 
         <div className="flex flex-col gap-4">
-          <p className="text-xs leading-relaxed text-subtle">{BUILD_AI_FOOTNOTE}</p>
+          <AnimatedText
+            as="p"
+            text={BUILD_AI_FOOTNOTE}
+            staggerMs={24}
+            delayMs={40}
+            className="text-xs leading-relaxed text-subtle"
+          />
           <Button type="submit" disabled={!canSubmit} className="w-full sm:w-auto">
             {CTA.buildPalace}
           </Button>

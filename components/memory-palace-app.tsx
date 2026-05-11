@@ -470,9 +470,13 @@ function Header({ phase }: { phase: AppPhase }) {
   return (
     <header className="flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
       <div className="flex min-w-0 flex-col gap-2">
-        <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-subtle">
-          {APP_KICKER}
-        </p>
+        <AnimatedText
+          as="p"
+          text={APP_KICKER}
+          cycleKey={phase}
+          staggerMs={28}
+          className="font-mono text-[10px] uppercase tracking-[0.28em] text-subtle"
+        />
         <AnimatedText
           as="p"
           text={phaseSubtitle(phase)}
@@ -487,9 +491,14 @@ function Header({ phase }: { phase: AppPhase }) {
           staggerMs={32}
           className="max-w-md text-xs leading-relaxed text-subtle"
         />
-        <p className="max-w-md font-mono text-[10px] leading-relaxed tracking-wide text-subtle/80">
-          {AI_DISCLOSURE_LINE}
-        </p>
+        <AnimatedText
+          as="p"
+          text={AI_DISCLOSURE_LINE}
+          cycleKey={phase}
+          delayMs={140}
+          staggerMs={26}
+          className="max-w-md font-mono text-[10px] leading-relaxed tracking-wide text-subtle/80"
+        />
       </div>
       <MorphText
         as="p"
