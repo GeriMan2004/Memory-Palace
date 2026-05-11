@@ -1,5 +1,7 @@
 # Memory Palace
 
+**Live demo:** [https://memorypalace-lyart.vercel.app/](https://memorypalace-lyart.vercel.app/)
+
 Single-screen memory game built with Next.js App Router.
 
 ## Stack
